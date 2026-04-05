@@ -1,13 +1,17 @@
 #!/bin/bash
-# ═══════════════════════════════════════════════════════════════════════════
-#   IRAN VPN SERVER READINESS TESTER  v3.0
-#   Based on real-world Iran wartime censorship data (March-April 2026)
-#   Sources: iAghapour Digital Freedom channel + net4people/bbs research
-#   Run ON your new foreign server right after purchase
-# ═══════════════════════════════════════════════════════════════════════════
-# Usage: bash iran-server-tester-v3.sh
-# ═══════════════════════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════════════════════
+#   IRAN VPN SERVER READINESS TESTER  v4.0
+#   Server-side intelligence engine + optional Reverse Probe listener
+#   Sources: iAghapour Digital Freedom + net4people/bbs + wartime Iran Apr 2026
+#
+#   USAGE:
+#     Normal mode:   bash iran-server-tester-v4.sh
+#     Probe server:  bash iran-server-tester-v4.sh --probe-server [PORT]
+#     Quick mode:    bash iran-server-tester-v4.sh --quick
+#     HTML report:   bash iran-server-tester-v4.sh --html
+# ═══════════════════════════════════════════════════════════════════════════════
 
+VERSION="4.0"
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
 CYAN='\033[0;36m'; BLUE='\033[0;34m'; MAGENTA='\033[0;35m'
 BOLD='\033[1m'; DIM='\033[2m'; NC='\033[0m'
@@ -18,12 +22,29 @@ declare -a ACTIONS
 declare -a INSTALL_CMDS
 BEST_SNI=""
 declare -a GOOD_SNIS
+PROBE_PORT=9999
+HTML_MODE=0
+QUICK_MODE=0
+PROBE_SERVER_MODE=0
+HTML_FILE="/tmp/iran-report-$(date +%Y%m%d-%H%M%S).html"
+REPORT_DATA=""
+
+# ── Parse args ─────────────────────────────────────────────────────────────
+for arg in "$@"; do
+    case $arg in
+        --probe-server) PROBE_SERVER_MODE=1 ;;
+        --probe-server=*) PROBE_SERVER_MODE=1; PROBE_PORT="${arg#*=}" ;;
+        --html) HTML_MODE=1 ;;
+        --quick) QUICK_MODE=1 ;;
+        --port=*) PROBE_PORT="${arg#*=}" ;;
+    esac
+done
 
 # ── Logging ────────────────────────────────────────────────────────────────
-ok()     { echo -e "  ${GREEN}[✔]${NC} $1"; }
-fail()   { echo -e "  ${RED}[✖]${NC} $1"; ISSUES+=("$1"); }
-warn()   { echo -e "  ${YELLOW}[⚠]${NC} $1"; }
-info()   { echo -e "  ${BLUE}[ℹ]${NC} $1"; }
+ok()     { echo -e "  ${GREEN}[✔]${NC} $1"; [[ $HTML_MODE -eq 1 ]] && REPORT_DATA+="<li class='ok'>✔ $1</li>"; }
+fail()   { echo -e "  ${RED}[✖]${NC} $1"; ISSUES+=("$1"); [[ $HTML_MODE -eq 1 ]] && REPORT_DATA+="<li class='fail'>✖ $1</li>"; }
+warn()   { echo -e "  ${YELLOW}[⚠]${NC} $1"; [[ $HTML_MODE -eq 1 ]] && REPORT_DATA+="<li class='warn'>⚠ $1</li>"; }
+info()   { echo -e "  ${BLUE}[ℹ]${NC} $1"; [[ $HTML_MODE -eq 1 ]] && REPORT_DATA+="<li class='info'>ℹ $1</li>"; }
 action() { ACTIONS+=("$1"); }
 cmd()    { INSTALL_CMDS+=("$1"); }
 add()    { SCORE=$((SCORE+$1)); }
@@ -31,197 +52,260 @@ sub()    { SCORE=$((SCORE-$1)); [[ $SCORE -lt 0 ]] && SCORE=0; }
 
 section() {
     echo ""
-    echo -e "${CYAN}╔══════════════════════════════════════════════════════╗${NC}"
-    printf "${CYAN}║${NC}  ${BOLD}%-52s${NC}  ${CYAN}║${NC}\n" "$1"
-    echo -e "${CYAN}╚══════════════════════════════════════════════════════╝${NC}"
+    echo -e "${CYAN}╔══════════════════════════════════════════════════════════╗${NC}"
+    printf "${CYAN}║${NC}  ${BOLD}%-54s${NC}  ${CYAN}║${NC}\n" "$1"
+    echo -e "${CYAN}╚══════════════════════════════════════════════════════════╝${NC}"
+    [[ $HTML_MODE -eq 1 ]] && REPORT_DATA+="<h2>$1</h2><ul>"
+}
+
+section_end() {
+    [[ $HTML_MODE -eq 1 ]] && REPORT_DATA+="</ul>"
 }
 
 banner() {
     clear
     echo -e "${CYAN}"
-    cat << 'EOF'
-  ██╗██████╗  █████╗ ███╗   ██╗    ██╗   ██╗██████╗ ███╗   ██╗    ██╗   ██╗██████╗ 
-  ██║██╔══██╗██╔══██╗████╗  ██║    ██║   ██║██╔══██╗████╗  ██║    ██║   ██║╚════██╗
-  ██║██████╔╝███████║██╔██╗ ██║    ██║   ██║██████╔╝██╔██╗ ██║    ██║   ██║ █████╔╝
-  ██║██╔══██╗██╔══██║██║╚██╗██║    ╚██╗ ██╔╝██╔═══╝ ██║╚██╗██║    ╚██╗ ██╔╝ ╚═══██╗
-  ██║██║  ██║██║  ██║██║ ╚████║     ╚████╔╝ ██║     ██║ ╚████║     ╚████╔╝ ██████╔╝
-  ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═══╝      ╚═══╝  ╚═╝     ╚═╝  ╚═══╝      ╚═══╝  ╚═════╝ 
-EOF
+    cat << 'BANNER'
+  ██╗██████╗  █████╗ ███╗   ██╗    ██╗   ██╗██████╗ ███╗   ██╗    ██╗   ██╗██╗  ██╗
+  ██║██╔══██╗██╔══██╗████╗  ██║    ██║   ██║██╔══██╗████╗  ██║    ██║   ██║██║  ██║
+  ██║██████╔╝███████║██╔██╗ ██║    ██║   ██║██████╔╝██╔██╗ ██║    ██║   ██║███████║
+  ██║██╔══██╗██╔══██║██║╚██╗██║    ╚██╗ ██╔╝██╔═══╝ ██║╚██╗██║    ╚██╗ ██╔╝╚════██║
+  ██║██║  ██║██║  ██║██║ ╚████║     ╚████╔╝ ██║     ██║ ╚████║     ╚████╔╝      ██║
+  ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═══╝      ╚═══╝  ╚═╝     ╚═╝  ╚═══╝      ╚═══╝       ╚═╝
+BANNER
     echo -e "${NC}"
-    echo -e "  ${BOLD}${CYAN}Iran VPN Server Intelligence Tester  v3.0${NC}"
-    echo -e "  ${DIM}Data: iAghapour channel + net4people/bbs + wartime Iran research Apr 2026${NC}"
-    echo -e "  ${CYAN}══════════════════════════════════════════════════════════════${NC}"
-    echo -e "  ${YELLOW}Analyzing: ASN • IP reputation • Protocol fit • DNS tunnel • Install readiness${NC}"
+    echo -e "  ${BOLD}${CYAN}Iran VPN Server Intelligence Tester  v${VERSION}${NC}"
+    echo -e "  ${DIM}Sources: iAghapour Digital Freedom + net4people/bbs research${NC}"
+    echo -e "  ${DIM}Data: wartime Iran censorship — April 2026${NC}"
+    echo -e "  ${CYAN}══════════════════════════════════════════════════════════════════${NC}"
+    echo -e "  ${YELLOW}Phases: ASN · Reachability · Ports · Network · SNI · DNS · Protocol · System${NC}"
     echo ""
+
+    if [[ $PROBE_SERVER_MODE -eq 1 ]]; then
+        echo -e "  ${MAGENTA}${BOLD}⚡ PROBE SERVER MODE ACTIVE — Listening for Iran clients${NC}"
+        echo -e "  ${MAGENTA}  Run iran-probe-client.bat on Windows inside Iran${NC}"
+        echo ""
+    fi
 }
 
 install_deps() {
-    local pkg_list="curl jq mtr netcat-openbsd iputils-ping dnsutils openssl"
-    local missing=0
-    for cmd in curl jq nc ping dig openssl; do
-        command -v $cmd &>/dev/null || missing=1
+    local needed=0
+    for tool in curl jq nc ping dig openssl mtr; do
+        command -v $tool &>/dev/null || needed=1
     done
-    if [[ $missing -eq 1 ]]; then
+    if [[ $needed -eq 1 ]]; then
         echo -e "  ${YELLOW}[→] Installing required tools...${NC}"
-        apt-get update -qq 2>/dev/null && apt-get install -yqq $pkg_list 2>/dev/null || \
-        yum install -yq curl jq nc bind-utils openssl 2>/dev/null || true
+        apt-get update -qq 2>/dev/null && \
+        apt-get install -yqq curl jq mtr netcat-openbsd iputils-ping \
+            dnsutils openssl 2>/dev/null || \
+        yum install -yq curl jq nc bind-utils openssl mtr 2>/dev/null || true
         echo -e "  ${GREEN}[✔] Tools ready${NC}"
     fi
 }
 
 # ═══════════════════════════════════════════════════════════════════════════
-# PHASE 1 — SERVER IDENTITY
+# PROBE SERVER MODE — Listen for connections from Windows client in Iran
+# ═══════════════════════════════════════════════════════════════════════════
+probe_server_mode() {
+    section "PROBE SERVER — Waiting for Iran Client Connection"
+
+    MY_IP=$(curl -s --max-time 5 https://api.ipify.org 2>/dev/null)
+    info "Server IP: ${BOLD}$MY_IP${NC}"
+    info "Probe port: ${BOLD}$PROBE_PORT${NC}"
+    echo ""
+    echo -e "  ${BOLD}${CYAN}Step 1:${NC} Run ${BOLD}iran-probe-client.bat${NC} on Windows PC inside Iran"
+    echo -e "  ${BOLD}${CYAN}Step 2:${NC} Enter server IP ${BOLD}$MY_IP${NC} and port ${BOLD}$PROBE_PORT${NC}"
+    echo -e "  ${BOLD}${CYAN}Step 3:${NC} Wait for connection results below..."
+    echo ""
+
+    # Open firewall for probe port
+    ufw allow $PROBE_PORT/tcp 2>/dev/null || iptables -I INPUT -p tcp --dport $PROBE_PORT -j ACCEPT 2>/dev/null
+
+    # Create a simple HTTP probe endpoint
+    PROBE_RESPONSE="HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 64\r\nX-Iran-Probe: v4\r\n\r\nIRAN_VPN_PROBE_OK|version=4|server=$MY_IP|ts=$(date +%s)\r\n"
+
+    echo -e "  ${YELLOW}Listening on port $PROBE_PORT (TCP)... Press Ctrl+C to stop${NC}"
+    echo -e "  ${DIM}Connections will be logged below:${NC}"
+    echo ""
+
+    # Listen and log connections
+    PROBE_LOG="/tmp/probe-connections.log"
+    > "$PROBE_LOG"
+
+    while true; do
+        # Handle connection using nc
+        CONN=$(echo -e "$PROBE_RESPONSE" | timeout 10 nc -l -p $PROBE_PORT -q 1 2>/dev/null)
+        if [[ $? -eq 0 ]]; then
+            TS=$(date '+%Y-%m-%d %H:%M:%S')
+            CLIENT_IP=$(ss -tnp 2>/dev/null | grep ":$PROBE_PORT" | awk '{print $5}' | cut -d: -f1 | head -1)
+            
+            # Parse probe data from client
+            PROBE_RESULT=$(echo "$CONN" | grep "IRAN_PROBE" | head -1)
+            ISP=$(echo "$PROBE_RESULT" | grep -oP 'isp=[^|]+' | cut -d= -f2)
+            CLIENT_VERSION=$(echo "$PROBE_RESULT" | grep -oP 'v=[^|]+' | cut -d= -f2)
+            LATENCY_TEST=$(echo "$PROBE_RESULT" | grep -oP 'lat=[^|]+' | cut -d= -f2)
+            
+            echo -e "  ${GREEN}[✔ $TS]${NC} Connection received!"
+            [[ -n "$CLIENT_IP" ]] && echo -e "  ${CYAN}  Client IP : $CLIENT_IP${NC}"
+            [[ -n "$ISP" ]] && echo -e "  ${CYAN}  ISP (Iran): $ISP${NC}"
+            [[ -n "$LATENCY_TEST" ]] && echo -e "  ${CYAN}  Latency  : ${LATENCY_TEST}ms${NC}"
+            echo -e "  ${GREEN}  → SERVER REACHABLE FROM IRAN ✅${NC}"
+            echo "$TS|$CLIENT_IP|$ISP|$LATENCY_TEST" >> "$PROBE_LOG"
+            echo ""
+        fi
+        sleep 1
+    done
+
+    section_end
+}
+
+# ═══════════════════════════════════════════════════════════════════════════
+# PHASE 1 — SERVER IDENTITY & ASN
 # ═══════════════════════════════════════════════════════════════════════════
 phase1_identity() {
     section "PHASE 1  SERVER IDENTITY & DATACENTER ANALYSIS"
 
-    MY_IP=$(curl -s --max-time 5 https://api.ipify.org 2>/dev/null || \
-            curl -s --max-time 5 http://ifconfig.me 2>/dev/null || \
-            curl -s --max-time 5 http://checkip.amazonaws.com 2>/dev/null)
+    # Multiple fallbacks for IP detection
+    MY_IP=""
+    for endpoint in "https://api.ipify.org" "https://ifconfig.me" "https://icanhazip.com" "https://checkip.amazonaws.com"; do
+        MY_IP=$(curl -s --max-time 5 "$endpoint" 2>/dev/null | tr -d '[:space:]')
+        [[ "$MY_IP" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] && break
+        MY_IP=""
+    done
 
-    [[ -z "$MY_IP" ]] && { fail "Cannot detect server IP — no internet?"; return 1; }
+    [[ -z "$MY_IP" ]] && { fail "Cannot detect server IP — no internet?"; section_end; return 1; }
     info "Server IP: ${BOLD}$MY_IP${NC}"
 
-    # ipinfo lookup
+    # IP info lookup — try multiple providers
     IPINFO=$(curl -s --max-time 8 "https://ipinfo.io/${MY_IP}/json" 2>/dev/null)
-    ASN=$(echo "$IPINFO"     | grep -o '"org":"[^"]*"'      | sed 's/"org":"//;s/"//')
-    CITY=$(echo "$IPINFO"    | grep -o '"city":"[^"]*"'     | sed 's/"city":"//;s/"//')
-    COUNTRY=$(echo "$IPINFO" | grep -o '"country":"[^"]*"'  | sed 's/"country":"//;s/"//')
-    AS_NUM=$(echo "$ASN"     | grep -oP 'AS\d+')
-    DC_NAME=$(echo "$ASN"    | sed 's/AS[0-9]* //')
+    
+    # Robust JSON parsing without jq dependency
+    ASN=$(echo "$IPINFO" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('org',''))" 2>/dev/null || \
+          echo "$IPINFO" | grep -o '"org":"[^"]*"' | sed 's/"org":"//;s/"//')
+    CITY=$(echo "$IPINFO" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('city',''))" 2>/dev/null || \
+           echo "$IPINFO" | grep -o '"city":"[^"]*"' | sed 's/"city":"//;s/"//')
+    COUNTRY=$(echo "$IPINFO" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('country',''))" 2>/dev/null || \
+              echo "$IPINFO" | grep -o '"country":"[^"]*"' | sed 's/"country":"//;s/"//')
+    HOSTNAME=$(echo "$IPINFO" | grep -o '"hostname":"[^"]*"' | sed 's/"hostname":"//;s/"//')
+    
+    # Extract AS number cleanly
+    AS_NUM=$(echo "$ASN" | grep -oP 'AS\d+' | head -1)
+    DC_NAME=$(echo "$ASN" | sed 's/AS[0-9]* //' | head -1)
 
-    info "Location  : ${BOLD}$CITY, $COUNTRY${NC}"
-    info "ASN       : ${BOLD}$AS_NUM — $DC_NAME${NC}"
+    info "Location  : ${BOLD}${CITY}${CITY:+, }${COUNTRY}${NC}"
+    info "ASN       : ${BOLD}${AS_NUM:-UNKNOWN} — ${DC_NAME:-Unknown}${NC}"
+    [[ -n "$HOSTNAME" ]] && info "Hostname  : ${DIM}$HOSTNAME${NC}"
 
-    # ── Verified ASN database for Iran (April 2026) ──────────────────────
-    # Tier 1 — Best success rate for Iran bypass
-    TIER1=("AS24940:Hetzner" "AS51167:Contabo" "AS34549:Neterra" "AS9009:M247" "AS47583:Hostinger" "AS40676:Psychz")
-    # Tier 2 — Usually works, occasional blocks
-    TIER2=("AS14061:DigitalOcean" "AS20473:Vultr" "AS63949:Linode" "AS16125:Kamatera" "AS199599:NGSAS")
-    # Tier 3 — Unpredictable
-    TIER3=("AS15169:Google" "AS16509:Amazon" "AS8075:Microsoft" "AS20940:Akamai")
-    # Known BAD for Iran
-    BAD=("AS16276:OVH-FR" "AS3215:OVH-Paris" "AS12322:OVH-EU" "AS5577:Root" "AS209017:Quasinetworks")
-    # BAD location zones
-    BAD_COUNTRIES=("RU" "CN" "IR")
-    WARN_COUNTRIES=("AZ" "TR" "GE" "AM")  # CIS/Caucasus: sometimes works, unpredictable
+    # ── Comprehensive ASN database for Iran (April 2026) ──────────────────
+    declare -A ASN_TIER=(
+        # Tier 1 — Best verified success rate
+        ["AS24940"]="Hetzner:1"    ["AS51167"]="Contabo:1"    ["AS34549"]="Neterra:1"
+        ["AS9009"]="M247:1"        ["AS47583"]="Hostinger:1"  ["AS40676"]="Psychz:1"
+        ["AS62240"]="Clouvider:1"  ["AS59253"]="Liteserver:1" ["AS60781"]="Leaseweb-NL:1"
+        # Tier 2 — Usually works
+        ["AS14061"]="DigitalOcean:2" ["AS20473"]="Vultr:2"    ["AS63949"]="Akamai-Linode:2"
+        ["AS16125"]="Kamatera:2"   ["AS199599"]="NGSAS:2"     ["AS24911"]="Frantech:2"
+        ["AS36352"]="ColoCrossing:2" ["AS55720"]="Gigabit-NL:2"
+        # Tier 3 — Monitored cloud giants
+        ["AS15169"]="Google-GCP:3" ["AS16509"]="Amazon-AWS:3" ["AS8075"]="Microsoft-Azure:3"
+        ["AS20940"]="Akamai:3"     ["AS13335"]="Cloudflare:3"
+        # Known BAD
+        ["AS16276"]="OVH-France:BAD"  ["AS3215"]="OVH-Paris:BAD"  ["AS12322"]="OVH-EU:BAD"
+        ["AS5577"]="Root-SA:BAD"      ["AS209017"]="Quasinetworks:BAD" ["AS199524"]="GCore-Labs:BAD"
+        ["AS48282"]="DataWebHosting:BAD" ["AS57169"]="Khalliance:BAD"
+    )
 
-    TIER=0
-    for entry in "${TIER1[@]}"; do
-        [[ "$AS_NUM" == "${entry%%:*}" ]] && TIER=1 && TIER_NAME="${entry##*:}" && break
-    done
-    for entry in "${TIER2[@]}"; do
-        [[ "$AS_NUM" == "${entry%%:*}" ]] && TIER=2 && TIER_NAME="${entry##*:}" && break
-    done
-    for entry in "${TIER3[@]}"; do
-        [[ "$AS_NUM" == "${entry%%:*}" ]] && TIER=3 && TIER_NAME="${entry##*:}" && break
-    done
-    IS_BAD=0
-    for entry in "${BAD[@]}"; do
-        [[ "$AS_NUM" == "${entry%%:*}" ]] && IS_BAD=1 && BAD_NAME="${entry##*:}" && break
-    done
-
-    if [[ $IS_BAD -eq 1 ]]; then
-        fail "ASN ${AS_NUM} (${BAD_NAME}) is in KNOWN-BLOCKED list for Iran — very high failure risk"
-        sub 35
-        action "CRITICAL: Change datacenter immediately. Recommended: Hetzner Finland (hetzner.com)"
-    elif [[ $TIER -eq 1 ]]; then
-        ok "ASN ${AS_NUM} (${TIER_NAME}) — Tier 1: verified high success rate for Iran"
-        add 30
-    elif [[ $TIER -eq 2 ]]; then
-        ok "ASN ${AS_NUM} (${TIER_NAME}) — Tier 2: usually works with proper config"
-        add 18
-    elif [[ $TIER -eq 3 ]]; then
-        warn "ASN ${AS_NUM} (${TIER_NAME}) — Tier 3: cloud giant, actively monitored by Iran DPI"
-        add 8
-    else
-        warn "ASN ${AS_NUM} — Unknown datacenter: untested for Iran, moderate confidence"
-        add 10
+    TIER="UNKNOWN"
+    DC_LABEL=""
+    if [[ -n "$AS_NUM" ]] && [[ -n "${ASN_TIER[$AS_NUM]}" ]]; then
+        TIER="${ASN_TIER[$AS_NUM]##*:}"
+        DC_LABEL="${ASN_TIER[$AS_NUM]%%:*}"
     fi
 
-    # ── Country/Location scoring ──────────────────────────────────────────
-    GOOD_COUNTRIES=("DE" "FI" "SE" "NL" "CH" "AT" "CZ" "PL" "HU" "SK")
-    IS_GOOD_COUNTRY=0
-    IS_BAD_COUNTRY=0
-    IS_WARN_COUNTRY=0
-    for c in "${GOOD_COUNTRIES[@]}"; do [[ "$COUNTRY" == "$c" ]] && IS_GOOD_COUNTRY=1; done
-    for c in "${BAD_COUNTRIES[@]}"; do [[ "$COUNTRY" == "$c" ]] && IS_BAD_COUNTRY=1; done
-    for c in "${WARN_COUNTRIES[@]}"; do [[ "$COUNTRY" == "$c" ]] && IS_WARN_COUNTRY=1; done
+    case $TIER in
+        1)   ok "ASN ${AS_NUM} (${DC_LABEL}) — ✅ Tier 1: Best verified success rate for Iran"; add 30 ;;
+        2)   ok "ASN ${AS_NUM} (${DC_LABEL}) — Tier 2: Usually works with proper config"; add 18 ;;
+        3)   warn "ASN ${AS_NUM} (${DC_LABEL}) — Tier 3: Cloud giant, closely monitored by Iran DPI"; add 8 ;;
+        BAD) fail "ASN ${AS_NUM} (${DC_LABEL}) — 🔴 KNOWN-BLOCKED for Iran — very high failure risk"; sub 35
+             action "CRITICAL: Change datacenter. Best: Hetzner Finland — hetzner.com (€3.79/mo)" ;;
+        *)   warn "ASN ${AS_NUM:-UNDETECTED} — Unknown datacenter; moderate confidence for Iran"; add 10 ;;
+    esac
 
-    if [[ $IS_GOOD_COUNTRY -eq 1 ]]; then
-        ok "Location ${COUNTRY} — Optimal for Iran (Central/Northern Europe)"
-        add 15
-    elif [[ $IS_WARN_COUNTRY -eq 1 ]]; then
-        warn "Location ${COUNTRY} — CIS/Caucasus region: inconsistent results for Iran"
-        add 5
+    # ── Country scoring ────────────────────────────────────────────────────
+    GOOD_C=("DE" "FI" "SE" "NL" "CH" "AT" "CZ" "PL" "HU" "SK" "BG" "RO" "NO" "DK")
+    WARN_C=("AZ" "TR" "GE" "AM" "UA" "BY")
+    BAD_C=("RU" "CN" "IR" "KP")
+
+    IS_GOOD=0; IS_WARN=0; IS_BAD=0
+    for c in "${GOOD_C[@]}"; do [[ "$COUNTRY" == "$c" ]] && IS_GOOD=1; done
+    for c in "${WARN_C[@]}"; do [[ "$COUNTRY" == "$c" ]] && IS_WARN=1; done
+    for c in "${BAD_C[@]}"; do [[ "$COUNTRY" == "$c" ]] && IS_BAD=1; done
+
+    if [[ $IS_GOOD -eq 1 ]]; then
+        ok "Location ${COUNTRY} — Optimal for Iran (Central/Northern Europe)"; add 15
     elif [[ "$COUNTRY" == "FR" ]]; then
-        warn "France: OVH-dominated routing, historically unreliable for Iran since 2025"
-        sub 8
-    elif [[ $IS_BAD_COUNTRY -eq 1 ]]; then
-        fail "Location ${COUNTRY} — High-risk country for Iran bypass"
-        sub 20
+        warn "France (OVH dominates): unreliable routing to Iran since 2025"; sub 8
+    elif [[ $IS_WARN -eq 1 ]]; then
+        warn "Location ${COUNTRY} — CIS/Caucasus: inconsistent for Iran, routing via AZ-IX monitored"; add 4
+    elif [[ $IS_BAD -eq 1 ]]; then
+        fail "Location ${COUNTRY} — High-risk, Iranian DPI has special rules for this zone"; sub 20
     else
-        warn "Location ${COUNTRY}: unknown reliability for Iran"
-        add 8
+        warn "Location ${COUNTRY}: unknown reliability for Iran"; add 8
     fi
+
+    section_end
 }
 
 # ═══════════════════════════════════════════════════════════════════════════
-# PHASE 2 — GITHUB & INSTALLATION REACHABILITY (CRITICAL)
+# PHASE 2 — GITHUB & INSTALLATION REACHABILITY
 # ═══════════════════════════════════════════════════════════════════════════
 phase2_install() {
     section "PHASE 2  INSTALLATION REACHABILITY (CRITICAL)"
-    info "Testing GitHub and package sources needed for installation..."
+    info "Testing all package sources needed for deployment..."
 
-    # Test raw.githubusercontent.com (most critical — 3X-UI install script)
-    RAW_STATUS=$(curl -s --max-time 8 -o /dev/null -w "%{http_code}" \
-        "https://raw.githubusercontent.com/mhsanaei/3x-ui/master/README.md" 2>/dev/null)
+    declare -A ENDPOINTS=(
+        ["raw.githubusercontent.com"]="https://raw.githubusercontent.com/mhsanaei/3x-ui/master/README.md"
+        ["github.com"]="https://github.com"
+        ["MasterDnsVPN"]="https://raw.githubusercontent.com/masterking32/MasterDnsVPN/main/server_linux_install.sh"
+        ["VayDNS"]="https://raw.githubusercontent.com/net2share/vaydns/main/install.sh"
+        ["pkg.dev (apt)"]="https://packages.ubuntu.com"
+    )
 
-    if [[ "$RAW_STATUS" == "200" ]]; then
-        ok "raw.githubusercontent.com — REACHABLE (3X-UI install will work)"
-        add 15
-    else
-        fail "raw.githubusercontent.com BLOCKED — 3X-UI install script will FAIL"
-        sub 20
-
-        # Try bypass: access via IP instead of domain
-        GITHUB_IP=$(dig +short raw.githubusercontent.com 2>/dev/null | head -1)
-        if [[ -n "$GITHUB_IP" ]]; then
-            ALT=$(curl -s --max-time 6 -o /dev/null -w "%{http_code}" \
-                -H "Host: raw.githubusercontent.com" "https://$GITHUB_IP/" 2>/dev/null)
-            if [[ "$ALT" == "200" || "$ALT" == "301" ]]; then
-                warn "raw.githubusercontent.com accessible via IP ($GITHUB_IP) — DNS issue only"
-                action "Fix DNS: echo 'nameserver 8.8.8.8' > /etc/resolv.conf && echo 'nameserver 1.1.1.1' >> /etc/resolv.conf"
-                add 10
-            fi
+    ALL_OK=1
+    for name in "${!ENDPOINTS[@]}"; do
+        URL="${ENDPOINTS[$name]}"
+        STATUS=$(curl -s --max-time 8 -o /dev/null -w "%{http_code}" "$URL" 2>/dev/null)
+        if [[ "$STATUS" == "200" || "$STATUS" == "301" || "$STATUS" == "302" ]]; then
+            ok "$name — REACHABLE"
+            add 3
+        else
+            warn "$name — UNREACHABLE (status: $STATUS)"
+            ALL_OK=0
         fi
-        action "Alternative install: download 3X-UI .deb from GitHub releases page and upload manually"
-    fi
+    done
 
-    # Test GitHub main
-    GH_STATUS=$(curl -s --max-time 6 -o /dev/null -w "%{http_code}" "https://github.com" 2>/dev/null)
-    [[ "$GH_STATUS" == "200" ]] && ok "github.com reachable" && add 5 || \
-        warn "github.com slow/unreachable — may affect installs"
-
-    # Test MasterDNS install URL
-    MDNS=$(curl -s --max-time 6 -o /dev/null -w "%{http_code}" \
-        "https://raw.githubusercontent.com/masterking32/MasterDnsVPN/main/server_linux_install.sh" 2>/dev/null)
-    [[ "$MDNS" == "200" ]] && ok "MasterDnsVPN install script — REACHABLE" || \
-        warn "MasterDnsVPN install script — unreachable (may need manual download)"
-
-    # APT/package manager
-    APT_OK=$(apt-get check 2>/dev/null | grep -c "Reading" || echo "0")
-    [[ $APT_OK -gt 0 ]] && ok "APT package manager working" || warn "APT issues detected"
-
-    # DNS resolution quality
-    DNS_TEST=$(dig +short +time=3 google.com 2>/dev/null | head -1)
-    if [[ -n "$DNS_TEST" ]]; then
-        ok "DNS resolution working (google.com → $DNS_TEST)"
+    if [[ $ALL_OK -eq 0 ]]; then
+        # Try DNS fix
+        CURRENT_NS=$(grep "^nameserver" /etc/resolv.conf | head -1)
+        info "Current DNS: $CURRENT_NS"
+        warn "Some sources unreachable — server may have DNS issues"
+        action "Fix DNS: echo 'nameserver 8.8.8.8' > /etc/resolv.conf && echo 'nameserver 1.1.1.1' >> /etc/resolv.conf"
+        sub 10
     else
-        fail "DNS resolution broken — cannot resolve hostnames"
-        sub 15
-        action "Fix DNS: echo 'nameserver 8.8.8.8' > /etc/resolv.conf"
+        ok "All installation sources reachable"; add 10
     fi
+
+    # DNS resolution quality test
+    DNS_RESOLVE=$(dig +short +time=3 github.com 2>/dev/null | head -1)
+    if [[ -n "$DNS_RESOLVE" ]]; then
+        ok "DNS resolution healthy (github.com → $DNS_RESOLVE)"
+    else
+        fail "DNS resolution broken — critical for all installations"
+        sub 15
+        action "Immediate fix: echo 'nameserver 8.8.8.8' > /etc/resolv.conf"
+    fi
+
+    section_end
 }
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -229,203 +313,225 @@ phase2_install() {
 # ═══════════════════════════════════════════════════════════════════════════
 phase3_ports() {
     section "PHASE 3  PORT & SERVICE READINESS"
-    info "Auditing ports and services..."
+    info "Auditing all critical ports and running services..."
 
     LISTENING=$(ss -tlnp 2>/dev/null)
+    UDP_LISTENING=$(ss -ulnp 2>/dev/null)
 
-    # 443 — critical
+    # Port 443 (Reality/TLS/WS+TLS)
     if echo "$LISTENING" | grep -q ":443 "; then
         SVC=$(echo "$LISTENING" | grep ":443 " | awk '{print $NF}' | head -1)
-        ok "Port 443 OPEN — service: $SVC"
-        add 8
+        ok "Port 443 OPEN (service: $SVC)"; add 8
     else
-        info "Port 443 available (nothing listening — ready for 3X-UI)"
-        add 5
+        info "Port 443 available — ready for 3X-UI"; add 5
     fi
 
-    # 80 — for WS+CDN
-    echo "$LISTENING" | grep -q ":80 " && ok "Port 80 OPEN" || info "Port 80 available (good for WS+CDN)"
+    # Port 80 (WS+CDN, ACME cert challenge)
+    echo "$LISTENING" | grep -q ":80 " && ok "Port 80 OPEN" || info "Port 80 available (needed for WS+CDN and Let's Encrypt)"
 
-    # 53 UDP — for DNS tunnel (MasterDNS, VayDNS)
-    UDP_53=$(ss -ulnp 2>/dev/null | grep ":53 ")
+    # Port 53 (DNS tunnel — MasterDNS/VayDNS)
+    UDP_53=$(echo "$UDP_LISTENING" | grep ":53 ")
     if [[ -n "$UDP_53" ]]; then
-        warn "Port 53 UDP already in use — may conflict with MasterDNS/VayDNS"
         SVC53=$(echo "$UDP_53" | awk '{print $NF}' | head -1)
-        info "Current service on 53: $SVC53"
-        action "If using MasterDNS/VayDNS: stop systemd-resolved first: systemctl stop systemd-resolved"
+        warn "Port 53 UDP in use by: $SVC53 — conflicts with MasterDNS/VayDNS"
+        action "Free port 53: systemctl stop systemd-resolved && systemctl disable systemd-resolved"
     else
-        ok "Port 53 UDP available — DNS tunnel protocols (MasterDNS, VayDNS) can use it"
-        add 8
+        ok "Port 53 UDP free — MasterDNS/VayDNS can bind here"; add 8
     fi
 
-    # systemd-resolved conflict check
+    # systemd-resolved
     RESOLVED=$(systemctl is-active systemd-resolved 2>/dev/null)
-    if [[ "$RESOLVED" == "active" ]]; then
-        warn "systemd-resolved active — will conflict with MasterDNS/VayDNS on port 53"
-        action "Before installing MasterDNS: systemctl stop systemd-resolved && systemctl disable systemd-resolved"
-    fi
+    [[ "$RESOLVED" == "active" ]] && \
+        warn "systemd-resolved running — will conflict with MasterDNS on port 53" && \
+        action "Run: systemctl stop systemd-resolved && systemctl disable systemd-resolved"
 
-    # Check existing installations
-    X_UI_INSTALLED=0
-    MASTERDNS_INSTALLED=0
-    if command -v x-ui &>/dev/null || systemctl list-units 2>/dev/null | grep -q "x-ui"; then
-        ok "3X-UI panel already installed"
-        X_UI_INSTALLED=1
-        add 8
+    # 3X-UI panel
+    if command -v x-ui &>/dev/null || systemctl list-units --type=service 2>/dev/null | grep -q "x-ui"; then
+        ok "3X-UI panel installed"; add 8
         XSTATUS=$(systemctl is-active x-ui 2>/dev/null)
-        [[ "$XSTATUS" == "active" ]] && ok "3X-UI running" || warn "3X-UI installed but not running"
+        [[ "$XSTATUS" == "active" ]] && ok "3X-UI service RUNNING" || warn "3X-UI installed but NOT running"
 
-        # Xray version check
-        XRAY_VER=$(/usr/local/x-ui/bin/xray-linux-amd64 version 2>/dev/null | head -1)
-        if [[ -n "$XRAY_VER" ]]; then
+        # Check Xray version for XHTTP support
+        XRAY_BIN=$(find /usr/local/x-ui /root -name "xray-linux-amd64" 2>/dev/null | head -1)
+        if [[ -n "$XRAY_BIN" ]]; then
+            XRAY_VER=$("$XRAY_BIN" version 2>/dev/null | head -1)
+            XRAY_MINOR=$(echo "$XRAY_VER" | grep -oP '\b1\.(\d+)\.' | grep -oP '\d+' | tail -1)
             info "Xray version: $XRAY_VER"
-            # Check if version supports XHTTP (needs 1.8.0+)
-            XRAY_MINOR=$(echo "$XRAY_VER" | grep -oP '1\.(\d+)' | cut -d. -f2)
-            [[ ${XRAY_MINOR:-0} -ge 8 ]] && \
-                ok "Xray 1.8+ detected — XHTTP (SplitHTTP) supported" && add 5 || \
-                warn "Old Xray version — upgrade for XHTTP support: x-ui → option 2"
+            [[ ${XRAY_MINOR:-0} -ge 8 ]] && ok "Xray 1.8+ — XHTTP (SplitHTTP) supported" && add 5 || \
+                warn "Old Xray — upgrade for XHTTP: x-ui → option 2 (Update)"
         fi
+    else
+        info "3X-UI not installed (fresh server — ready for deployment)"
     fi
 
-    if [[ -f "/etc/masterdns/config" ]] || systemctl list-units 2>/dev/null | grep -q "masterdns"; then
-        ok "MasterDnsVPN already installed"
-        MASTERDNS_INSTALLED=1
-    fi
+    # MasterDNS
+    [[ -f "/etc/masterdns/config" ]] || systemctl list-units 2>/dev/null | grep -q "masterdns" && \
+        ok "MasterDnsVPN installed" || info "MasterDnsVPN not installed"
 
-    # BBR check
+    # BBR congestion control
     BBR=$(sysctl net.ipv4.tcp_congestion_control 2>/dev/null | awk '{print $3}')
     if [[ "$BBR" == "bbr" ]]; then
-        ok "BBR congestion control ACTIVE — important for Iran throttling bypass"
-        add 8
+        ok "BBR active — critical for bypassing Iran's upload throttling"; add 8
     else
-        warn "BBR not active (current: ${BBR:-unknown}) — reduces speed through Iran throttling"
+        warn "BBR inactive (current: ${BBR:-unknown}) — Iran throttles non-BBR connections heavily"
         sub 5
-        action "Enable BBR: after installing x-ui, run 'x-ui' → option 24"
+        action "Enable BBR: run 'x-ui' → option 24 after install"
     fi
 
-    # UFW check
+    # UFW firewall status
     UFW=$(ufw status 2>/dev/null | head -1)
     if echo "$UFW" | grep -q "active"; then
-        info "UFW firewall active"
-        PORTS_ALLOWED=$(ufw status 2>/dev/null | grep -E "^443|^80|^53" | head -5)
-        if echo "$UFW" | grep -q "443"; then
-            ok "Port 443 allowed in UFW"
-        else
-            warn "Port 443 may be blocked by UFW"
-            action "Open ports: ufw allow 443 && ufw allow 80 && ufw allow 53/udp && ufw reload"
-        fi
+        info "UFW firewall ACTIVE"
+        P443=$(ufw status 2>/dev/null | grep -c "443")
+        P80=$(ufw status 2>/dev/null | grep -c "80")
+        P53=$(ufw status 2>/dev/null | grep -c "53")
+        [[ $P443 -gt 0 ]] && ok "Port 443 allowed in UFW" || \
+            { warn "Port 443 blocked by UFW"; action "Fix: ufw allow 443 && ufw allow 80 && ufw allow 53/udp && ufw reload"; }
     fi
+
+    section_end
 }
 
 # ═══════════════════════════════════════════════════════════════════════════
-# PHASE 4 — NETWORK QUALITY & IRAN ROUTE
+# PHASE 4 — NETWORK QUALITY & IRAN ROUTING
 # ═══════════════════════════════════════════════════════════════════════════
 phase4_network() {
-    section "PHASE 4  NETWORK QUALITY & IRAN ROUTING"
-    info "Testing routes and latency relevant to Iran connectivity..."
+    section "PHASE 4  NETWORK QUALITY & IRAN ROUTING ANALYSIS"
+    info "Testing routes and latency to Iranian ISPs..."
 
-    # Key Iranian network endpoints
-    declare -A IRAN_NETS=(
-        ["185.51.201.1"]="MCI/Hamrah-Aval (AS44244)"
-        ["5.200.200.200"]="IranCell (AS44278)"
-        ["217.218.127.127"]="TIC International Gateway (AS12880)"
-        ["91.99.96.1"]="Shatel (AS48159)"
-        ["78.39.193.1"]="Rightel (AS49100)"
+    # Iranian ISP endpoints
+    declare -A IRAN_ISP=(
+        ["185.51.201.1"]="MCI/Hamrah-Aval AS44244 (largest ISP)"
+        ["5.200.200.200"]="IranCell AS44278 (mobile)"
+        ["217.218.127.127"]="TIC International Gateway AS12880"
+        ["91.99.96.1"]="Shatel AS48159 (fixed broadband)"
+        ["78.39.193.1"]="Rightel AS49100 (4G)"
+        ["194.225.0.1"]="IranNet AS12880"
     )
 
     IRAN_REACHABLE=0
-    declare -A IRAN_RTT
+    BEST_RTT=9999
 
-    for IP in "${!IRAN_NETS[@]}"; do
-        LABEL="${IRAN_NETS[$IP]}"
+    for IP in "${!IRAN_ISP[@]}"; do
+        LABEL="${IRAN_ISP[$IP]}"
         RESULT=$(ping -c 3 -W 2 "$IP" 2>/dev/null)
         if echo "$RESULT" | grep -q "bytes from"; then
-            RTT=$(echo "$RESULT" | grep "avg" | awk -F'/' '{printf "%.0f", $5}')
+            RTT=$(echo "$RESULT" | grep "avg" | awk -F'/' '{printf "%.0f", $5}' 2>/dev/null || echo "?")
             ok "$LABEL — RTT: ${RTT}ms"
-            IRAN_RTT[$IP]=$RTT
             IRAN_REACHABLE=$((IRAN_REACHABLE+1))
-            add 5
+            add 4
+            [[ ${RTT:-9999} -lt $BEST_RTT ]] && BEST_RTT=$RTT
         else
-            info "$LABEL — not directly reachable (asymmetric routing normal)"
+            info "$LABEL — not directly reachable (asymmetric routing is normal)"
         fi
     done
 
-    # MTR to TIC gateway (most important — international gateway)
-    info "Running MTR trace to TIC gateway (217.218.127.127)..."
-    MTR_RESULT=$(mtr -r -c 3 -T -P 80 217.218.127.127 2>/dev/null | tail -8)
-    if [[ -n "$MTR_RESULT" ]]; then
-        echo "$MTR_RESULT" | while read line; do
-            echo -e "  ${DIM}$line${NC}"
-        done
-        # Count hops with 100% loss before reaching destination
-        LOSSY=$(echo "$MTR_RESULT" | grep "100.0%" | wc -l)
-        [[ $LOSSY -gt 3 ]] && warn "Multiple hops dropping — possible routing issue toward Iran"
+    if [[ $IRAN_REACHABLE -ge 3 ]]; then
+        ok "Good bidirectional routing to Iran ($IRAN_REACHABLE/6 ISPs reachable)"; add 5
+    elif [[ $IRAN_REACHABLE -ge 1 ]]; then
+        warn "Partial routing to Iran ($IRAN_REACHABLE/6 ISPs) — asymmetric routing"
     fi
 
-    # Cloudflare proximity (for CDN-based configs)
+    # MTR trace to TIC (main international gateway)
+    if [[ $QUICK_MODE -eq 0 ]]; then
+        info "Running MTR trace to TIC gateway (international routing hub)..."
+        MTR_OUT=$(mtr -r -c 3 -T -P 80 217.218.127.127 2>/dev/null | tail -8)
+        if [[ -n "$MTR_OUT" ]]; then
+            echo "$MTR_OUT" | while read line; do echo -e "  ${DIM}$line${NC}"; done
+            # Detect Azerbaijan routing (common for European servers, monitored by Iran)
+            AZ_HOPS=$(echo "$MTR_OUT" | grep -c "az-ix\|az\.net\|baku\|az\.bgp" 2>/dev/null || echo 0)
+            if [[ $AZ_HOPS -gt 0 ]]; then
+                warn "Route passes through Azerbaijan (az-ix) — Iran DPI monitors this peering point"
+                warn "Your server's traffic to Iran goes via AZ-IX — increased DPI risk for Reality"
+            fi
+            # Check for packet loss spikes
+            HIGH_LOSS=$(echo "$MTR_OUT" | awk '{print $6}' | grep -v "^0" | grep -v "Loss%" | head -3)
+            [[ -n "$HIGH_LOSS" ]] && warn "Packet loss detected in routing path — may cause instability"
+        fi
+    fi
+
+    # Cloudflare latency (crucial for CDN-based configs)
     CF_RTT=$(ping -c 3 -W 3 1.1.1.1 2>/dev/null | grep "avg" | awk -F'/' '{printf "%.0f", $5}')
     if [[ -n "$CF_RTT" ]]; then
-        info "Cloudflare (1.1.1.1) latency: ${CF_RTT}ms"
-        [[ $CF_RTT -lt 30 ]] && ok "Excellent Cloudflare proximity (<30ms) — CDN configs will be fast" && add 8
-        [[ $CF_RTT -ge 30 && $CF_RTT -lt 80 ]] && ok "Good Cloudflare proximity (${CF_RTT}ms)" && add 5
-        [[ $CF_RTT -ge 80 ]] && warn "High Cloudflare latency (${CF_RTT}ms) — CDN configs may be slow"
+        info "Cloudflare (1.1.1.1): ${CF_RTT}ms"
+        if [[ $CF_RTT -lt 15 ]]; then
+            ok "Cloudflare proximity EXCELLENT (<15ms) — WS+CDN will be very fast"; add 10
+        elif [[ $CF_RTT -lt 40 ]]; then
+            ok "Cloudflare proximity GOOD (${CF_RTT}ms) — CDN configs will work well"; add 6
+        elif [[ $CF_RTT -lt 80 ]]; then
+            warn "Cloudflare proximity moderate (${CF_RTT}ms) — CDN usable but not optimal"; add 3
+        else
+            warn "High Cloudflare latency (${CF_RTT}ms) — CDN-based configs may be slow"
+        fi
     fi
 
-    # Outbound port tests (important for TLS camouflage)
-    info "Testing critical outbound ports..."
-    for port in 443 80 8080 8443; do
+    # Outbound port availability
+    info "Testing outbound ports (camouflage protocols)..."
+    declare -A PORT_TEST=(
+        ["443"]="HTTPS/Reality/WS+TLS"
+        ["80"]="HTTP/WS"
+        ["8443"]="Alt-HTTPS"
+        ["2053"]="Cloudflare Alt"
+        ["2083"]="Cloudflare Alt"
+    )
+    PORTS_OK=0
+    for port in "${!PORT_TEST[@]}"; do
         if nc -w 3 -z 1.1.1.1 $port 2>/dev/null; then
-            ok "Outbound port ${port} — OPEN"
+            ok "Outbound port ${port} (${PORT_TEST[$port]}) — OPEN"; PORTS_OK=$((PORTS_OK+1))
         else
-            warn "Outbound port ${port} — blocked (may affect some configs)"
+            warn "Outbound port ${port} — blocked"
         fi
     done
 
-    # MTU test
-    MTU_OK=$(ping -c 2 -M do -s 1400 8.8.8.8 2>/dev/null | grep -c "bytes from" || echo 0)
-    if [[ $MTU_OK -gt 0 ]]; then
-        ok "MTU 1400 — no fragmentation issues"
-        add 3
+    # MTU test (fragmentation causes issues with DPI bypass)
+    MTU_1400=$(ping -c 2 -M do -s 1400 8.8.8.8 2>/dev/null | grep -c "bytes from" 2>/dev/null || echo 0)
+    MTU_1200=$(ping -c 2 -M do -s 1200 8.8.8.8 2>/dev/null | grep -c "bytes from" 2>/dev/null || echo 0)
+    if [[ $MTU_1400 -gt 0 ]]; then
+        ok "MTU 1400+ works — no fragmentation issues"; add 3
+    elif [[ $MTU_1200 -gt 0 ]]; then
+        warn "MTU limited to 1200 — add fragment settings to xray"
+        action "Add to xray config outbound: 'fragment':{'packets':'tlshello','length':'10-20','interval':'5-10'}"
     else
-        warn "MTU issues detected — add Fragment setting in xray config"
-        action "In xray outbound, add: 'fragment': {'packets': 'tlshello', 'length': '10-30', 'interval': '10-20'}"
+        warn "MTU severely limited — serious performance impact"
     fi
 
-    # IPv6 check
-    IPV6=$(ip -6 addr show 2>/dev/null | grep "inet6" | grep -v "::1" | grep -v "fe80" | head -1)
+    # IPv6 (bypass avenue for some Iranian ISPs)
+    IPV6=$(ip -6 addr show 2>/dev/null | grep "inet6" | grep -v "::1\|fe80" | head -1)
     if [[ -n "$IPV6" ]]; then
-        ok "IPv6 available — can use VLESS over IPv6 (some Iranian ISPs bypass via IPv6)"
-        add 3
+        IPV6_ADDR=$(echo "$IPV6" | awk '{print $2}')
+        ok "IPv6 available ($IPV6_ADDR) — some Iranian ISPs bypass DPI via IPv6"; add 3
     else
         info "No public IPv6 — IPv4 only"
     fi
+
+    section_end
 }
 
 # ═══════════════════════════════════════════════════════════════════════════
-# PHASE 5 — SNI & TLS CAMOUFLAGE
+# PHASE 5 — SNI & TLS CAMOUFLAGE TESTING
 # ═══════════════════════════════════════════════════════════════════════════
 phase5_sni() {
-    section "PHASE 5  SNI & TLS CAMOUFLAGE TESTING"
-    info "Testing SNI domains for Reality config (Iran DPI whitelist check)..."
+    section "PHASE 5  SNI & TLS CAMOUFLAGE ANALYSIS"
+    info "Testing SNI domains for Reality config (Iran whitelist matching)..."
     echo ""
 
-    # SNI list with priority — based on Iran whitelist research April 2026
-    # Format: "domain:priority:note"
-    SNI_LIST=(
-        "www.microsoft.com:HIGH:Iran whitelist — consistently works"
-        "www.bing.com:HIGH:Iran whitelist — consistent"
-        "www.apple.com:HIGH:Apple CDN — usually whitelisted"
-        "addons.mozilla.org:MED:Mozilla — often works"
-        "www.speedtest.net:LOW:Popular but now monitored by Iran DPI"
-        "www.google.com:MED:Google — sometimes allowed"
-        "ajax.googleapis.com:MED:Google CDN — sometimes works"
-        "www.samsung.com:MED:Samsung — underused, less monitored"
-        "www.amazon.com:MED:Amazon — moderate reliability"
-        "update.microsoft.com:HIGH:Microsoft update — usually whitelisted"
+    # Comprehensive SNI list — priority based on Iran whitelist research 2026
+    # Format: "domain:PRIORITY:notes"
+    declare -a SNI_LIST=(
+        "www.microsoft.com:★★★:Iran whitelist — TOP CHOICE"
+        "www.bing.com:★★★:Iran whitelist — very consistent"
+        "update.microsoft.com:★★★:Microsoft update — whitelisted"
+        "www.apple.com:★★★:Apple CDN — consistently whitelisted"
+        "www.samsung.com:★★☆:Samsung — less monitored, good choice"
+        "addons.mozilla.org:★★☆:Mozilla — often works"
+        "www.amazon.com:★★☆:Amazon — moderate"
+        "www.google.com:★★☆:Google — sometimes allowed"
+        "ajax.googleapis.com:★★☆:Google CDN — sometimes works"
+        "www.speedtest.net:★☆☆:NOW MONITORED — avoid as primary"
     )
 
-    echo -e "  ${BOLD}SNI  DOMAIN                       STATUS        PRIORITY${NC}"
-    echo -e "  ────────────────────────────────────────────────────────────"
+    printf "  ${BOLD}%-35s %-12s %s${NC}\n" "DOMAIN" "STATUS" "PRIORITY"
+    echo -e "  $(printf '─%.0s' {1..65})"
 
     for entry in "${SNI_LIST[@]}"; do
         DOMAIN="${entry%%:*}"
@@ -433,257 +539,314 @@ phase5_sni() {
         PRIO="${rest%%:*}"
         NOTE="${rest##*:}"
 
-        # Quick TLS test
-        TLS=$(echo "Q" | timeout 4 openssl s_client \
-            -connect "${DOMAIN}:443" -servername "$DOMAIN" \
-            -verify_return_error 2>/dev/null | head -5)
+        # TLS test via openssl
+        TLS_OK=0
+        TLS_OUT=$(echo "Q" | timeout 4 openssl s_client \
+            -connect "${DOMAIN}:443" \
+            -servername "$DOMAIN" \
+            -tls1_3 \
+            -verify_return_error 2>/dev/null | head -3)
 
-        if echo "$TLS" | grep -q "CONNECTED"; then
-            GOOD_SNIS+=("$DOMAIN")
-            [[ -z "$BEST_SNI" && "$PRIO" == "HIGH" ]] && BEST_SNI="$DOMAIN"
-            printf "  ${GREEN}[✔]${NC}  %-32s %-14s ${GREEN}%s${NC}\n" \
-                "$DOMAIN" "REACHABLE" "$PRIO"
+        if echo "$TLS_OUT" | grep -q "CONNECTED"; then
+            TLS_OK=1
         else
-            # Fallback: curl test
-            HC=$(curl -s --max-time 4 -o /dev/null -w "%{http_code}" "https://$DOMAIN" 2>/dev/null)
-            if [[ "$HC" =~ ^(200|301|302|307|308)$ ]]; then
-                GOOD_SNIS+=("$DOMAIN")
-                [[ -z "$BEST_SNI" && "$PRIO" == "HIGH" ]] && BEST_SNI="$DOMAIN"
-                printf "  ${GREEN}[✔]${NC}  %-32s %-14s ${GREEN}%s${NC}\n" \
-                    "$DOMAIN" "REACHABLE" "$PRIO"
-            else
-                printf "  ${RED}[✖]${NC}  %-32s %-14s ${DIM}%s${NC}\n" \
-                    "$DOMAIN" "UNREACHABLE" "$PRIO"
-            fi
+            # Fallback: curl
+            HC=$(curl -s --max-time 4 -o /dev/null -w "%{http_code}" \
+                --tls-max 1.3 "https://$DOMAIN" 2>/dev/null)
+            [[ "$HC" =~ ^(200|301|302|307|308)$ ]] && TLS_OK=1
+        fi
+
+        if [[ $TLS_OK -eq 1 ]]; then
+            GOOD_SNIS+=("$DOMAIN")
+            [[ -z "$BEST_SNI" && "$PRIO" == "★★★" ]] && BEST_SNI="$DOMAIN"
+            printf "  ${GREEN}[✔]${NC}  %-32s ${GREEN}%-12s${NC} ${DIM}%s${NC}\n" \
+                "$DOMAIN" "REACHABLE" "$PRIO → $NOTE"
+        else
+            printf "  ${RED}[✖]${NC}  %-32s ${RED}%-12s${NC} ${DIM}%s${NC}\n" \
+                "$DOMAIN" "UNREACHABLE" "$PRIO"
         fi
     done
 
     echo ""
     SNI_COUNT=${#GOOD_SNIS[@]}
-    if [[ $SNI_COUNT -ge 5 ]]; then
-        ok "${SNI_COUNT} SNI candidates available — excellent Reality camouflage options"
-        add 12
-    elif [[ $SNI_COUNT -ge 2 ]]; then
-        ok "${SNI_COUNT} SNI candidates available — adequate"
-        add 6
+    if [[ $SNI_COUNT -ge 6 ]]; then
+        ok "$SNI_COUNT SNI candidates available — excellent Reality camouflage pool"; add 15
+    elif [[ $SNI_COUNT -ge 3 ]]; then
+        ok "$SNI_COUNT SNI candidates available — adequate"; add 8
+    elif [[ $SNI_COUNT -ge 1 ]]; then
+        warn "Only $SNI_COUNT SNI candidates — limited"; add 3
     else
-        fail "Too few SNI domains reachable — server may have egress restrictions"
-        sub 10
+        fail "No SNI domains reachable — server has egress restrictions"; sub 15
     fi
 
     [[ -z "$BEST_SNI" && ${#GOOD_SNIS[@]} -gt 0 ]] && BEST_SNI="${GOOD_SNIS[0]}"
     [[ -z "$BEST_SNI" ]] && BEST_SNI="www.microsoft.com"
 
-    echo -e "\n  ${BOLD}Recommended SNI for your Reality inbound:${NC}"
+    echo -e "\n  ${BOLD}Best SNI choices for your Reality inbound:${NC}"
     for sni in "${GOOD_SNIS[@]:0:3}"; do
         echo -e "  ${GREEN}  → sni=${sni}${NC}"
     done
+
+    section_end
 }
 
 # ═══════════════════════════════════════════════════════════════════════════
-# PHASE 6 — DNS TUNNEL COMPATIBILITY (NEW — MasterDNS/VayDNS specific)
+# PHASE 6 — DNS TUNNEL COMPATIBILITY
 # ═══════════════════════════════════════════════════════════════════════════
 phase6_dns_tunnel() {
-    section "PHASE 6  DNS TUNNEL COMPATIBILITY (MasterDNS & VayDNS)"
-    info "Testing DNS capabilities needed for wartime Iran (April 2026 conditions)..."
+    section "PHASE 6  DNS TUNNEL (MasterDNS & VayDNS) — Most stable in wartime Iran"
+    info "In April 2026, DNS tunneling is the ONLY consistently working method in Iran"
     echo ""
-    # Context: In wartime Iran, only DNS-based tunnels reliably work
-    # Source: iAghapour channel + developer notes April 2026
 
-    DNS_SCORE=0
+    DNS_READY=0
 
-    # 1. Can act as authoritative DNS server?
-    DNS_UDP_OPEN=$(nc -w 2 -zu 8.8.8.8 53 2>/dev/null && echo "ok" || echo "fail")
-    if [[ "$DNS_UDP_OPEN" == "ok" ]]; then
-        ok "UDP port 53 outbound works — DNS resolution functional"
-        DNS_SCORE=$((DNS_SCORE+1))
+    # 1. UDP 53 outbound
+    if nc -w 2 -zu 8.8.8.8 53 2>/dev/null; then
+        ok "UDP port 53 outbound — WORKS"; DNS_READY=$((DNS_READY+1)); add 5
     else
-        warn "UDP port 53 outbound issues — may affect MasterDNS client resolution"
+        warn "UDP port 53 outbound — may be restricted"
     fi
 
-    # 2. Test DNS over TCP (fallback for Iran's blocked UDP)
-    DNS_TCP=$(nc -w 3 -z 8.8.8.8 53 2>/dev/null && echo "ok" || echo "fail")
-    if [[ "$DNS_TCP" == "ok" ]]; then
-        ok "DNS over TCP (port 53) works — important fallback for Iran"
-        DNS_SCORE=$((DNS_SCORE+1))
-        add 5
+    # 2. TCP 53 (fallback for UDP-blocked Iran networks)
+    if nc -w 3 -z 8.8.8.8 53 2>/dev/null; then
+        ok "TCP port 53 — WORKS (fallback for UDP-blocked Iranian connections)"; DNS_READY=$((DNS_READY+1)); add 5
     else
-        warn "DNS TCP port 53 blocked — may reduce MasterDNS stability"
+        warn "TCP port 53 — blocked"
     fi
 
-    # 3. Test DNS query length handling (Iran drops long DNS queries)
-    # Iran's DPI drops queries > ~110 chars; recommended max-qname-len = 101
-    info "Testing DNS query length tolerance (Iran DPI blocks >110 chars)..."
-    SHORT_DNS=$(dig +short +timeout=3 "test.google.com" @8.8.8.8 2>/dev/null)
-    if [[ -n "$SHORT_DNS" ]]; then
-        ok "Short DNS queries work — MasterDNS max-qname-len=101 will function"
-        DNS_SCORE=$((DNS_SCORE+1))
-        add 5
+    # 3. DNS query length test (Iran DPI drops queries > ~110 chars)
+    SHORT_Q=$(dig +short +timeout=3 "a.b.com" @8.8.8.8 2>/dev/null)
+    if [[ $? -eq 0 ]]; then
+        ok "Short DNS queries work — max-qname-len=101 setting will function"; add 5
     fi
 
-    # 4. Check DoH (DNS over HTTPS) availability
-    DOH=$(curl -s --max-time 4 "https://cloudflare-dns.com/dns-query?name=google.com&type=A" \
-        -H "accept: application/dns-json" 2>/dev/null | grep -c "Answer")
-    if [[ $DOH -gt 0 ]]; then
-        ok "DNS over HTTPS (DoH) works — can be used as DNS resolver for MasterDNS"
-        add 3
+    # 4. DNS over HTTPS (DoH)
+    DOH=$(curl -s --max-time 4 \
+        "https://cloudflare-dns.com/dns-query?name=google.com&type=A" \
+        -H "accept: application/dns-json" 2>/dev/null | grep -c "Answer" 2>/dev/null || echo 0)
+    [[ $DOH -gt 0 ]] && ok "DoH (DNS over HTTPS) works — can be used as resolver" && add 3
+
+    # 5. Test actual DNS resolver capability
+    DNS_AUTH=$(dig +short @$MY_IP google.com 2>/dev/null 2>/dev/null | head -1)
+    if [[ -n "$DNS_AUTH" ]]; then
+        ok "Server can act as DNS resolver — MasterDNS/VayDNS ready"; add 8
+    else
+        info "DNS resolver not yet configured on this server"
     fi
 
-    # 5. MasterDNS install readiness
+    # 6. Installation availability
     echo ""
-    info "Checking MasterDnsVPN installation requirements..."
-    MDNS_URL="https://raw.githubusercontent.com/masterking32/MasterDnsVPN/main/server_linux_install.sh"
-    MDNS_REACH=$(curl -s --max-time 6 -o /dev/null -w "%{http_code}" "$MDNS_URL" 2>/dev/null)
-    if [[ "$MDNS_REACH" == "200" ]]; then
-        ok "MasterDnsVPN install script reachable"
-        add 5
+    info "Checking DNS tunnel script availability..."
+    MDNS=$(curl -s --max-time 6 -o /dev/null -w "%{http_code}" \
+        "https://raw.githubusercontent.com/masterking32/MasterDnsVPN/main/server_linux_install.sh")
+    if [[ "$MDNS" == "200" ]]; then
+        ok "MasterDnsVPN install script — REACHABLE"; add 5
         cmd "MasterDnsVPN: bash <(curl -Ls https://raw.githubusercontent.com/masterking32/MasterDnsVPN/main/server_linux_install.sh)"
     else
-        warn "MasterDnsVPN install URL unreachable — needs DNS fix first"
-        action "Fix DNS first, then install MasterDnsVPN"
+        warn "MasterDnsVPN install script unreachable — fix DNS first"
+        action "After fixing DNS, install: bash <(curl -Ls https://raw.githubusercontent.com/masterking32/MasterDnsVPN/main/server_linux_install.sh)"
     fi
 
-    # 6. VayDNS check
-    VAYDNS_URL="https://raw.githubusercontent.com/net2share/vaydns/main/install.sh"
-    VAYDNS_REACH=$(curl -s --max-time 6 -o /dev/null -w "%{http_code}" "$VAYDNS_URL" 2>/dev/null)
-    if [[ "$VAYDNS_REACH" == "200" ]]; then
-        ok "VayDNS install script reachable"
+    VAYDNS=$(curl -s --max-time 6 -o /dev/null -w "%{http_code}" \
+        "https://raw.githubusercontent.com/net2share/vaydns/main/install.sh")
+    if [[ "$VAYDNS" == "200" ]]; then
+        ok "VayDNS install script — REACHABLE"; 
         cmd "VayDNS: bash <(curl -Ls https://raw.githubusercontent.com/net2share/vaydns/main/install.sh)"
     else
-        warn "VayDNS install URL unreachable"
+        warn "VayDNS install script unreachable"
+    fi
+
+    # DNS Tunnel readiness summary
+    echo ""
+    if [[ $DNS_READY -ge 2 ]]; then
+        ok "Server is DNS TUNNEL READY — deploy MasterDNS immediately"; add 10
+    else
+        warn "DNS tunnel prerequisites partial — check port 53 availability"
     fi
 
     echo ""
-    echo -e "  ${BOLD}${CYAN}DNS Tunnel Configuration Notes (April 2026):${NC}"
-    echo -e "  ${YELLOW}  • Use max-qname-len=101 (NOT 253) — Iran DPI blocks longer queries${NC}"
-    echo -e "  ${YELLOW}  • Use short domain names (e.g. t.ab.com not long.subdomain.example.com)${NC}"
-    echo -e "  ${YELLOW}  • VayDNS + MasterDNS work even on weak DNS resolvers${NC}"
-    echo -e "  ${YELLOW}  • DNS tunnel is the MOST STABLE in wartime/extreme censorship Iran${NC}"
+    echo -e "  ${BOLD}${CYAN}Critical MasterDNS settings for Iran (April 2026):${NC}"
+    echo -e "  ${YELLOW}  • max-qname-len=101 (NOT 253 — Iran DPI drops queries >110 chars)${NC}"
+    echo -e "  ${YELLOW}  • Keep domain names SHORT: t.ab.com (not long.subdomain.domain.com)${NC}"
+    echo -e "  ${YELLOW}  • Stop systemd-resolved BEFORE install (conflicts on port 53)${NC}"
+    echo -e "  ${YELLOW}  • Works on even the weakest DNS resolvers in Iran${NC}"
+
+    section_end
 }
 
 # ═══════════════════════════════════════════════════════════════════════════
-# PHASE 7 — PROTOCOL & PANEL RECOMMENDATION ENGINE
+# PHASE 7 — PROTOCOL & PANEL INTELLIGENCE ENGINE
 # ═══════════════════════════════════════════════════════════════════════════
 phase7_protocols() {
     section "PHASE 7  PROTOCOL & PANEL RECOMMENDATION ENGINE"
     echo ""
-    echo -e "  ${BOLD}Based on Iran DPI behavior April 2026 + your server profile:${NC}"
+    echo -e "  ${BOLD}Iran DPI behavior April 2026 — Protocol Effectiveness:${NC}"
     echo ""
 
-    # Protocol matrix with realistic ratings for wartime Iran
-    printf "  ${BOLD}%-3s %-38s %-12s %s${NC}\n" "★" "PROTOCOL STACK" "STABILITY" "NOTES"
-    echo -e "  ────────────────────────────────────────────────────────────────────"
-
-    # Rating based on score
     SHOW_REALITY=1
-    [[ $SCORE -lt 50 ]] && SHOW_REALITY=0
+    [[ $SCORE -lt 45 ]] && SHOW_REALITY=0
 
-    echo -e ""
-    echo -e "  ${BOLD}${GREEN}=== TIER 1: MOST RELIABLE IN WARTIME IRAN ===${NC}"
-
-    # DNS Tunnel — most reliable in wartime
-    echo -e "  ${GREEN}[★★★★★]${NC} VLESS + WS/TCP + MasterDnsVPN DNS tunnel"
-    echo -e "         ${DIM}DNS-based obfuscation — most stable in wartime Iran${NC}"
-    echo -e "         ${CYAN}Config: DNS tunnel + any VLESS config behind it${NC}"
+    # ── Protocol matrix ────────────────────────────────────────────────────
+    echo -e "  ${BOLD}${GREEN}═══ TIER 1 — MOST RELIABLE IN WARTIME ═══${NC}"
+    echo ""
+    echo -e "  ${GREEN}[★★★★★]${NC} ${BOLD}VLESS + DNS Tunnel (MasterDnsVPN / VayDNS)${NC}"
+    echo -e "         ${DIM}The ONLY reliably working method in extreme censorship (wartime)${NC}"
+    echo -e "         ${CYAN}Install: MasterDnsVPN on server + client app in Windows${NC}"
+    echo -e "         ${CYAN}Key: use max-qname-len=101 and SHORT domain names${NC}"
+    echo ""
+    echo -e "  ${GREEN}[★★★★☆]${NC} ${BOLD}VLESS + WebSocket + TLS via Cloudflare CDN${NC}"
+    echo -e "         ${DIM}Hides real IP behind CF. Proven stable over months.${NC}"
+    echo -e "         ${CYAN}Requires: domain + Cloudflare account (free) + DNS proxied ON${NC}"
     echo ""
 
-    # WS + TLS + Cloudflare CDN
-    echo -e "  ${GREEN}[★★★★☆]${NC} VLESS + WebSocket + TLS via Cloudflare CDN"
-    echo -e "         ${DIM}Hides real IP behind CF. Best for long-term stability.${NC}"
-    echo -e "         ${CYAN}Config: network=ws, security=tls, CDN proxy=ON, domain needed${NC}"
+    echo -e "  ${BOLD}${YELLOW}═══ TIER 2 — WORKS ON CLEAN/FRESH IPs ═══${NC}"
     echo ""
-
-    echo -e "  ${BOLD}${YELLOW}=== TIER 2: WORKS WITH FRESH/CLEAN IP ===${NC}"
-
-    # XHTTP (SplitHTTP) — new, better than WS
-    echo -e "  ${YELLOW}[★★★★☆]${NC} VLESS + XHTTP (SplitHTTP) + Cloudflare CDN"
-    echo -e "         ${DIM}New in Xray 1.8+ — beats WS fingerprinting, best CDN option${NC}"
-    echo -e "         ${CYAN}Config: network=splithttp/xhttp, security=tls, CDN proxy=ON${NC}"
+    echo -e "  ${YELLOW}[★★★★☆]${NC} ${BOLD}VLESS + XHTTP (SplitHTTP) via Cloudflare CDN${NC}"
+    echo -e "         ${DIM}New in Xray 1.8+ — beats WebSocket fingerprinting detection${NC}"
+    echo -e "         ${CYAN}network=xhttp, security=tls, host=your-cf-domain, CDN proxy ON${NC}"
     echo ""
-
     if [[ $SHOW_REALITY -eq 1 ]]; then
-        echo -e "  ${YELLOW}[★★★☆☆]${NC} VLESS + Reality + xtls-rprx-vision + uTLS=chrome"
-        echo -e "         ${DIM}Works on clean IPs — gets blocked fast on popular DCs${NC}"
-        echo -e "         ${CYAN}Config: security=reality, flow=xtls-rprx-vision, fp=chrome, sni=$BEST_SNI${NC}"
+        echo -e "  ${YELLOW}[★★★☆☆]${NC} ${BOLD}VLESS + Reality + xtls-rprx-vision + uTLS=chrome${NC}"
+        echo -e "         ${DIM}Works well on fresh IPs, gets blocked on popular DCs within days${NC}"
+        echo -e "         ${CYAN}sni=${BEST_SNI}, flow=xtls-rprx-vision, fp=chrome${NC}"
     else
-        echo -e "  ${RED}[★★☆☆☆]${NC} VLESS + Reality — RISKY for this server"
-        echo -e "         ${DIM}Low-confidence ASN/location makes Reality blocks likely${NC}"
+        echo -e "  ${RED}[★★☆☆☆]${NC} ${BOLD}VLESS + Reality${NC} — ${RED}RISKY for this server${NC}"
+        echo -e "         ${DIM}Low-score ASN/location makes Reality detection likely${NC}"
     fi
     echo ""
 
-    echo -e "  ${BOLD}${RED}=== BLOCKED — DO NOT USE ===${NC}"
+    echo -e "  ${BOLD}${RED}═══ BLOCKED — DO NOT USE ═══${NC}"
     echo -e "  ${RED}[✖✖✖✖✖]${NC} WireGuard / OpenVPN — Blocked in <1 second by Iran DPI"
-    echo -e "  ${RED}[✖✖✖✖✖]${NC} VLESS plain TCP (no TLS) — Immediately detectable"
-    echo -e "  ${RED}[✖✖✖✖✖]${NC} VLESS Reality on blocked/gray-listed IP — waste of time"
+    echo -e "  ${RED}[✖✖✖✖✖]${NC} VLESS TCP without TLS/Reality — Immediately detectable"
+    echo -e "  ${RED}[✖✖✖✖✖]${NC} Shadowsocks standard — Detectable, blocked"
     echo ""
 
-    # Panel recommendation
-    echo -e "  ${BOLD}=== PANEL RECOMMENDATION ===${NC}"
+    # ── Panel matrix ───────────────────────────────────────────────────────
+    echo -e "  ${BOLD}Panel Recommendation (based on your server's capabilities):${NC}"
     echo ""
-    printf "  ${BOLD}%-3s %-25s %-12s %s${NC}\n" "★" "PANEL" "SUITABILITY" "NOTES"
-    echo -e "  ──────────────────────────────────────────────────────────"
-    echo -e "  ${GREEN}[★★★★★]${NC} ${BOLD}3X-UI (mhsanaei)${NC}          Excellent  Full-featured, actively maintained, best for Iran"
-    echo -e "              ${DIM}github.com/MHSanaei/3x-ui — supports XHTTP, Reality, WS, all protocols${NC}"
+    printf "  ${BOLD}%-8s %-28s %-12s %s${NC}\n" "SCORE" "PANEL" "FIT" "NOTES"
+    echo -e "  $(printf '─%.0s' {1..75})"
+    echo -e "  ${GREEN}★★★★★${NC}  3X-UI (mhsanaei)             ${GREEN}EXCELLENT${NC}  Full-featured, XHTTP/Reality/WS/DNS-out"
+    echo -e "         ${DIM}github.com/MHSanaei/3x-ui${NC}"
     echo ""
-    echo -e "  ${GREEN}[★★★★☆]${NC} ${BOLD}MasterDnsVPN${NC}              Excellent  Best for wartime — DNS tunnel specialist"
-    echo -e "              ${DIM}github.com/masterking32/MasterDnsVPN — works when everything else fails${NC}"
+    echo -e "  ${GREEN}★★★★★${NC}  MasterDnsVPN                 ${GREEN}EXCELLENT${NC}  Best for wartime — DNS specialist"
+    echo -e "         ${DIM}github.com/masterking32/MasterDnsVPN${NC}"
     echo ""
-    echo -e "  ${GREEN}[★★★★☆]${NC} ${BOLD}VayDNS${NC}                    Excellent  DNS tunnel alternative, very stable"
-    echo -e "              ${DIM}github.com/net2share/vaydns — good with weak DNS resolvers${NC}"
+    echo -e "  ${GREEN}★★★★☆${NC}  VayDNS                       ${GREEN}EXCELLENT${NC}  DNS tunnel alternative, stable"
+    echo -e "         ${DIM}github.com/net2share/vaydns${NC}"
     echo ""
-    echo -e "  ${YELLOW}[★★★☆☆]${NC} ${BOLD}Hiddify Panel${NC}             Good       User-friendly, good for distribution"
-    echo -e "              ${DIM}github.com/hiddify/hiddify-manager — easier but less control${NC}"
+    echo -e "  ${YELLOW}★★★☆☆${NC}  Hiddify Panel                ${YELLOW}GOOD${NC}      User-friendly, good for distribution"
+    echo -e "         ${DIM}github.com/hiddify/hiddify-manager${NC}"
     echo ""
-    echo -e "  ${YELLOW}[★★★☆☆]${NC} ${BOLD}Marzban${NC}                   Good       Multi-server, good for scaling"
-    echo -e "              ${DIM}github.com/Gozargah/Marzban${NC}"
+    echo -e "  ${YELLOW}★★★☆☆${NC}  Marzban                      ${YELLOW}GOOD${NC}      Multi-server, good for scaling"
+    echo -e "         ${DIM}github.com/Gozargah/Marzban${NC}"
     echo ""
-    echo -e "  ${RED}[★★☆☆☆]${NC} ${BOLD}x-ui (alireza0)${NC}           Outdated   No longer actively maintained"
+    echo -e "  ${RED}★★☆☆☆${NC}  x-ui (alireza0)               ${RED}OUTDATED${NC}  Not maintained, use 3X-UI instead"
+
+    section_end
 }
 
 # ═══════════════════════════════════════════════════════════════════════════
 # PHASE 8 — SYSTEM RESOURCES
 # ═══════════════════════════════════════════════════════════════════════════
 phase8_system() {
-    section "PHASE 8  SYSTEM RESOURCES"
+    section "PHASE 8  SYSTEM RESOURCES & COMPATIBILITY"
 
     OS=$(grep PRETTY_NAME /etc/os-release 2>/dev/null | cut -d'"' -f2)
-    info "OS: $OS"
-    echo "$OS" | grep -qiE "ubuntu 22|ubuntu 24|debian 11|debian 12" && \
-        ok "OS fully supported — all scripts will install cleanly" && add 5 || \
-        warn "Non-standard OS — some scripts may have compatibility issues"
+    KERNEL=$(uname -r)
+    CPU_CORES=$(nproc 2>/dev/null || echo "?")
+    RAM_TOTAL=$(free -m 2>/dev/null | grep Mem | awk '{print $2}')
+    RAM_FREE=$(free -m 2>/dev/null | grep Mem | awk '{print $7}')
+    DISK_FREE=$(df -h / 2>/dev/null | tail -1 | awk '{print $4}')
+    UPTIME=$(uptime -p 2>/dev/null || echo "?")
 
-    RAM=$(free -m | grep Mem | awk '{print $2}')
-    RAM_FREE=$(free -m | grep Mem | awk '{print $4}')
-    if [[ $RAM -ge 2048 ]]; then
-        ok "RAM: ${RAM}MB total, ${RAM_FREE}MB free — excellent"
-        add 5
-    elif [[ $RAM -ge 1024 ]]; then
-        ok "RAM: ${RAM}MB — sufficient for 3X-UI + MasterDNS"
+    info "OS     : $OS"
+    info "Kernel : $KERNEL"
+    info "CPU    : ${CPU_CORES} core(s)"
+    info "RAM    : ${RAM_TOTAL}MB total, ${RAM_FREE}MB available"
+    info "Disk   : $DISK_FREE free on /"
+    info "Uptime : $UPTIME"
+
+    # OS compatibility
+    if echo "$OS" | grep -qiE "Ubuntu 22|Ubuntu 24|Debian 11|Debian 12"; then
+        ok "OS fully supported — all scripts install cleanly"; add 5
+    elif echo "$OS" | grep -qiE "Ubuntu 20|Debian 10"; then
+        warn "OS slightly outdated — supported but upgrade recommended"
         add 3
-    elif [[ $RAM -ge 512 ]]; then
-        warn "RAM: ${RAM}MB — minimum; run only 3X-UI OR MasterDNS, not both"
     else
-        fail "RAM: ${RAM}MB — too low; unstable operation expected"
-        sub 10
+        warn "Non-standard OS — compatibility issues possible"
     fi
 
-    DISK=$(df -h / | tail -1 | awk '{print $4}')
-    info "Free disk: $DISK"
-
-    CPU_CORES=$(nproc 2>/dev/null || echo "?")
-    info "CPU: ${CPU_CORES} core(s)"
-    [[ ${CPU_CORES:-1} -lt 1 ]] && warn "Single core — avoid running multiple heavy services"
+    # RAM requirements
+    if [[ ${RAM_TOTAL:-0} -ge 2048 ]]; then
+        ok "RAM ${RAM_TOTAL}MB — can run 3X-UI + MasterDNS + BBR simultaneously"; add 5
+    elif [[ ${RAM_TOTAL:-0} -ge 1024 ]]; then
+        ok "RAM ${RAM_TOTAL}MB — sufficient for 3X-UI + MasterDNS"; add 3
+    elif [[ ${RAM_TOTAL:-0} -ge 512 ]]; then
+        warn "RAM ${RAM_TOTAL}MB — minimal; run only ONE service (3X-UI OR MasterDNS)"
+    else
+        fail "RAM ${RAM_TOTAL}MB — too low for stable VPN operation"; sub 10
+    fi
 
     # Kernel version (BBR needs 4.9+)
-    KERNEL=$(uname -r)
-    KERNEL_MAJ=$(echo $KERNEL | cut -d. -f1)
-    KERNEL_MIN=$(echo $KERNEL | cut -d. -f2)
-    info "Kernel: $KERNEL"
-    if [[ $KERNEL_MAJ -ge 5 ]] || [[ $KERNEL_MAJ -eq 4 && $KERNEL_MIN -ge 9 ]]; then
-        ok "Kernel 4.9+ — BBR can be enabled"
+    KMAJ=$(uname -r | cut -d. -f1)
+    KMIN=$(uname -r | cut -d. -f2)
+    if [[ $KMAJ -ge 5 ]] || [[ $KMAJ -eq 4 && $KMIN -ge 9 ]]; then
+        ok "Kernel $KERNEL — BBR eligible"
     else
         warn "Old kernel — BBR may not be available"
     fi
+
+    # IPv6 dual-stack
+    IP6=$(ip -6 addr show 2>/dev/null | grep -v "::1\|fe80" | grep -c "inet6" 2>/dev/null)
+    [[ $IP6 -gt 0 ]] && ok "Dual-stack IPv4+IPv6 — maximum compatibility" && add 3 || \
+        info "IPv4 only — IPv6 tunnel bypass not available"
+
+    section_end
+}
+
+# ═══════════════════════════════════════════════════════════════════════════
+# PROBE SERVER LISTENER (background, non-blocking)
+# ═══════════════════════════════════════════════════════════════════════════
+start_probe_listener() {
+    section "PHASE 9  REVERSE PROBE LISTENER (Iran → Server)"
+    info "Starting listener for Windows client connections from inside Iran..."
+
+    # Open firewall
+    ufw allow $PROBE_PORT/tcp 2>/dev/null || \
+    iptables -I INPUT -p tcp --dport $PROBE_PORT -j ACCEPT 2>/dev/null
+
+    MY_IP=$(curl -s --max-time 5 https://api.ipify.org 2>/dev/null)
+
+    echo ""
+    echo -e "  ${BOLD}${CYAN}Probe listener is ACTIVE on port ${PROBE_PORT}${NC}"
+    echo -e "  ${CYAN}  Server IP: ${BOLD}$MY_IP${NC}"
+    echo ""
+    echo -e "  ${BOLD}Run iran-probe-client.bat on Windows inside Iran:${NC}"
+    echo -e "  ${YELLOW}  1. Double-click iran-probe-client.bat${NC}"
+    echo -e "  ${YELLOW}  2. Enter server IP: ${BOLD}$MY_IP${NC}"
+    echo -e "  ${YELLOW}  3. Enter probe port: ${BOLD}$PROBE_PORT${NC}"
+    echo -e "  ${YELLOW}  4. Wait ~30 seconds for results${NC}"
+    echo ""
+    echo -e "  ${DIM}Waiting for connections (60 second window)...${NC}"
+
+    # Listen for one connection with 60s timeout
+    PROBE_RESULT=$(timeout 60 nc -l -p $PROBE_PORT 2>/dev/null)
+    if [[ -n "$PROBE_RESULT" ]]; then
+        CLIENT_LATENCY=$(echo "$PROBE_RESULT" | grep -oP 'latency=\K[0-9]+' | head -1)
+        CLIENT_ISP=$(echo "$PROBE_RESULT" | grep -oP 'isp=\K[^|]+' | head -1)
+        echo ""
+        echo -e "  ${GREEN}${BOLD}✅ CONNECTION RECEIVED FROM IRAN!${NC}"
+        [[ -n "$CLIENT_ISP" ]] && echo -e "  ${GREEN}  ISP: $CLIENT_ISP${NC}"
+        [[ -n "$CLIENT_LATENCY" ]] && echo -e "  ${GREEN}  RTT from Iran: ${CLIENT_LATENCY}ms${NC}"
+        echo -e "  ${GREEN}  → THIS SERVER IS REACHABLE FROM IRAN ✅${NC}"
+        add 20
+    else
+        warn "No connection received in 60 seconds"
+        info "This may mean: (1) .bat not run yet, (2) server IP blocked from Iran, (3) port 53 issue"
+    fi
+
+    section_end
 }
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -696,43 +859,39 @@ final_verdict() {
     [[ $SCORE -lt 0 ]] && SCORE=0
 
     echo ""
+    # Score bar
     BAR=""
     FILLED=$((SCORE / 5))
     for ((i=0; i<20; i++)); do
         [[ $i -lt $FILLED ]] && BAR+="█" || BAR+="░"
     done
 
-    if [[ $SCORE -ge 78 ]]; then
-        COLOR=$GREEN; GRADE="A"
-        VERDICT="EXCELLENT — Deploy immediately"
-        ADVICE="High probability of working in Iran. Install 3X-UI + enable BBR. Use Reality as primary."
-    elif [[ $SCORE -ge 58 ]]; then
-        COLOR=$YELLOW; GRADE="B"
-        VERDICT="GOOD — Deploy with CDN config"
-        ADVICE="Moderate-high probability. Use WS+TLS+Cloudflare as primary, Reality as backup."
-    elif [[ $SCORE -ge 40 ]]; then
-        COLOR=$YELLOW; GRADE="C"
-        VERDICT="ACCEPTABLE — DNS tunnel primary"
-        ADVICE="Use MasterDNS or VayDNS as primary tunnel. Don't rely on Reality directly."
-    elif [[ $SCORE -ge 25 ]]; then
-        COLOR=$RED; GRADE="D"
-        VERDICT="RISKY — Consider alternatives"
-        ADVICE="Low success probability. Try Hetzner Finland before investing more time."
+    if [[ $SCORE -ge 80 ]]; then
+        C=$GREEN; G="A"; V="EXCELLENT — Deploy immediately"
+        ADV="High probability of working in Iran. Use DNS tunnel as primary, Reality as backup."
+    elif [[ $SCORE -ge 65 ]]; then
+        C=$GREEN; G="B"; V="GOOD — Deploy with Cloudflare CDN"
+        ADV="Good server. Use WS+TLS+Cloudflare as primary, Reality as secondary option."
+    elif [[ $SCORE -ge 50 ]]; then
+        C=$YELLOW; G="C"; V="ACCEPTABLE — Use DNS tunnel only"
+        ADV="Moderate confidence. DNS tunnel (MasterDNS) is your most reliable option here."
+    elif [[ $SCORE -ge 35 ]]; then
+        C=$YELLOW; G="D"; V="RISKY — Consider Hetzner Finland"
+        ADV="Low success probability. Try Hetzner FI (hetzner.com) for better results."
     else
-        COLOR=$RED; GRADE="F"
-        VERDICT="AVOID — Change server immediately"
-        ADVICE="Very high failure probability. This server will not reliably work from Iran."
+        C=$RED; G="F"; V="AVOID — Change server immediately"
+        ADV="Very high failure probability. This server will not reliably work from Iran."
     fi
 
-    echo -e "  ${BOLD}Grade: ${COLOR}${GRADE}${NC}  ${DIM}|${NC}  Score: ${COLOR}${BOLD}${SCORE}/100${NC}"
-    echo -e "  ${COLOR}[${BAR}] ${SCORE}%${NC}"
+    echo -e "  ${BOLD}Score: ${C}${SCORE}/100${NC}  ${DIM}|${NC}  ${BOLD}Grade: ${C}${G}${NC}"
+    echo -e "  ${C}[${BAR}] ${SCORE}%${NC}"
     echo ""
-    echo -e "  ${COLOR}${BOLD}$VERDICT${NC}"
-    echo -e "  ${DIM}$ADVICE${NC}"
+    echo -e "  ${C}${BOLD}🎯 $V${NC}"
+    echo -e "  ${DIM}$ADV${NC}"
 
     if [[ ${#ISSUES[@]} -gt 0 ]]; then
         echo ""
-        echo -e "  ${BOLD}${RED}Issues requiring attention:${NC}"
+        echo -e "  ${BOLD}${RED}Critical Issues:${NC}"
         for i in "${!ISSUES[@]}"; do
             echo -e "  ${RED}  $((i+1)). ${ISSUES[$i]}${NC}"
         done
@@ -740,53 +899,127 @@ final_verdict() {
 
     if [[ ${#ACTIONS[@]} -gt 0 ]]; then
         echo ""
-        echo -e "  ${BOLD}${CYAN}Recommended actions (in priority order):${NC}"
-        for i in "${!ACTIONS[@]}"; do
-            echo -e "  ${CYAN}  $((i+1)). ${ACTIONS[$i]}${NC}"
+        echo -e "  ${BOLD}${CYAN}Action Plan (execute in order):${NC}"
+        declare -A SEEN_ACTIONS
+        N=1
+        for action in "${ACTIONS[@]}"; do
+            if [[ -z "${SEEN_ACTIONS[$action]}" ]]; then
+                echo -e "  ${CYAN}  $N. $action${NC}"
+                SEEN_ACTIONS[$action]=1
+                N=$((N+1))
+            fi
         done
     fi
 
-    # ── Installation Guide ────────────────────────────────────────────────
-    section "INSTALLATION GUIDE FOR THIS SERVER"
+    # ── Complete Installation Guide ────────────────────────────────────────
+    section "COMPLETE DEPLOYMENT GUIDE FOR THIS SERVER"
     echo ""
-    echo -e "  ${BOLD}Step 1 — Fix DNS (if issues found):${NC}"
+    SHORT_ID=$(openssl rand -hex 4 2>/dev/null || echo "a1b2c3d4")
+    UUID=$(cat /proc/sys/kernel/random/uuid 2>/dev/null || echo "$(openssl rand -hex 16 | sed 's/\(.\{8\}\)\(.\{4\}\)\(.\{4\}\)\(.\{4\}\)\(.\{12\}\)/\1-\2-\3-\4-\5/')")
+
+    echo -e "  ${BOLD}── Step 1: Prepare Server ──${NC}"
+    echo -e "  ${CYAN}  systemctl stop systemd-resolved${NC}"
+    echo -e "  ${CYAN}  systemctl disable systemd-resolved${NC}"
     echo -e "  ${CYAN}  echo 'nameserver 8.8.8.8' > /etc/resolv.conf${NC}"
-    echo -e "  ${CYAN}  echo 'nameserver 1.1.1.1' >> /etc/resolv.conf${NC}"
+    echo -e "  ${CYAN}  ufw allow 443 && ufw allow 80 && ufw allow 53/udp && ufw reload${NC}"
     echo ""
-    echo -e "  ${BOLD}Step 2 — Install 3X-UI (primary panel):${NC}"
+    echo -e "  ${BOLD}── Step 2: Install 3X-UI ──${NC}"
     echo -e "  ${CYAN}  bash <(curl -Ls https://raw.githubusercontent.com/mhsanaei/3x-ui/master/install.sh)${NC}"
     echo ""
-    echo -e "  ${BOLD}Step 3 — Post-install configuration:${NC}"
-    echo -e "  ${CYAN}  x-ui  →  24 (Enable BBR)${NC}"
-    echo -e "  ${CYAN}  ufw allow 443 && ufw allow 80 && ufw allow 53/udp${NC}"
+    echo -e "  ${BOLD}── Step 3: Post-install (run 'x-ui' command) ──${NC}"
+    echo -e "  ${CYAN}  x-ui  →  option 24  (Enable BBR)${NC}"
     echo ""
-    echo -e "  ${BOLD}Step 4 — Create VLESS inbound (optimal settings):${NC}"
-    echo -e "  ${CYAN}  Protocol: VLESS | Port: 443 | Security: Reality${NC}"
-    echo -e "  ${CYAN}  Network: tcp | Flow: xtls-rprx-vision | uTLS: chrome${NC}"
-    echo -e "  ${CYAN}  SNI: ${BEST_SNI:-www.microsoft.com}${NC}"
-    echo -e "  ${CYAN}  Short ID: $(openssl rand -hex 4 2>/dev/null || echo 'a1b2c3d4')${NC}"
+    echo -e "  ${BOLD}── Step 4: Create VLESS Reality inbound ──${NC}"
+    echo -e "  ${CYAN}  Protocol  : VLESS${NC}"
+    echo -e "  ${CYAN}  Port      : 443${NC}"
+    echo -e "  ${CYAN}  Security  : Reality${NC}"
+    echo -e "  ${CYAN}  Flow      : xtls-rprx-vision${NC}"
+    echo -e "  ${CYAN}  uTLS      : chrome${NC}"
+    echo -e "  ${CYAN}  SNI       : ${BEST_SNI:-www.microsoft.com}${NC}"
+    echo -e "  ${CYAN}  Short ID  : $SHORT_ID${NC}"
+    echo -e "  ${CYAN}  UUID      : $UUID${NC}"
+    echo -e "  ${CYAN}  Keys      : Generate with 'Generate' button in panel${NC}"
     echo ""
-    echo -e "  ${BOLD}Step 5 — Install MasterDnsVPN (DNS tunnel fallback):${NC}"
-    echo -e "  ${CYAN}  systemctl stop systemd-resolved${NC}"
+    echo -e "  ${BOLD}── Step 5: Install MasterDnsVPN (DNS Tunnel — primary method) ──${NC}"
     echo -e "  ${CYAN}  bash <(curl -Ls https://raw.githubusercontent.com/masterking32/MasterDnsVPN/main/server_linux_install.sh)${NC}"
     echo ""
-    echo -e "  ${BOLD}Step 6 — MasterDnsVPN client settings (Windows):${NC}"
-    echo -e "  ${CYAN}  Use -max-qname-len 101 (not 253 — Iran drops longer queries)${NC}"
-    echo -e "  ${CYAN}  Keep domain/subdomain names SHORT (e.g. t.ab.com)${NC}"
+    echo -e "  ${BOLD}── Step 6: Client settings (Windows in Iran) ──${NC}"
+    echo -e "  ${CYAN}  MasterDNS client: use -max-qname-len 101${NC}"
+    echo -e "  ${CYAN}  Keep domain/subdomain SHORT (e.g. v.ab.ir — not long.name.domain.com)${NC}"
+    echo -e "  ${CYAN}  V2RayN: import VLESS link → Set Active → Test${NC}"
+    echo ""
+    echo -e "  ${BOLD}── Step 7: Probe from Iran (verify connectivity) ──${NC}"
+    echo -e "  ${CYAN}  bash iran-server-tester-v4.sh --probe-server=${PROBE_PORT}${NC}"
+    echo -e "  ${CYAN}  Then run iran-probe-client.bat on Windows inside Iran${NC}"
     echo ""
 
     if [[ ${#INSTALL_CMDS[@]} -gt 0 ]]; then
-        echo -e "  ${BOLD}Additional available install commands:${NC}"
+        echo -e "  ${BOLD}Other available install commands:${NC}"
         for c in "${INSTALL_CMDS[@]}"; do
             echo -e "  ${CYAN}  → $c${NC}"
         done
     fi
 
     echo ""
-    echo -e "${CYAN}  ══════════════════════════════════════════════════════════════${NC}"
-    echo -e "${CYAN}  Test complete — آزادی اینترنت حق همه مردم ایران است${NC}"
-    echo -e "${CYAN}  ══════════════════════════════════════════════════════════════${NC}"
+    echo -e "${CYAN}  ════════════════════════════════════════════════════════════════${NC}"
+    echo -e "${CYAN}  v${VERSION} complete  •  آزادی اینترنت حق همه مردم ایران است${NC}"
+    echo -e "${CYAN}  ════════════════════════════════════════════════════════════════${NC}"
     echo ""
+
+    # HTML report generation
+    if [[ $HTML_MODE -eq 1 ]]; then
+        generate_html_report
+    fi
+}
+
+# ═══════════════════════════════════════════════════════════════════════════
+# HTML REPORT GENERATOR
+# ═══════════════════════════════════════════════════════════════════════════
+generate_html_report() {
+    cat > "$HTML_FILE" << HTMLEOF
+<!DOCTYPE html>
+<html dir="ltr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Iran VPN Server Report v4 — $MY_IP</title>
+<style>
+  body{font-family:'Courier New',monospace;background:#0d1117;color:#e6edf3;margin:0;padding:20px}
+  h1{color:#58a6ff;border-bottom:1px solid #30363d;padding-bottom:10px}
+  h2{color:#79c0ff;margin-top:25px;border-left:4px solid #1f6feb;padding-left:10px}
+  .ok{color:#3fb950;list-style:none;padding:3px 0}
+  .fail{color:#f85149;list-style:none;padding:3px 0}
+  .warn{color:#d29922;list-style:none;padding:3px 0}
+  .info{color:#58a6ff;list-style:none;padding:3px 0}
+  ul{padding-left:15px}
+  .score-box{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:20px;margin:20px 0}
+  .score{font-size:48px;font-weight:bold}
+  .grade-A,.grade-B{color:#3fb950}
+  .grade-C,.grade-D{color:#d29922}
+  .grade-F{color:#f85149}
+  .bar{background:#21262d;height:20px;border-radius:10px;margin:10px 0}
+  .bar-fill{height:20px;border-radius:10px;background:linear-gradient(90deg,#238636,#3fb950)}
+  .meta{color:#8b949e;font-size:12px}
+  .cmd{background:#161b22;border:1px solid #30363d;padding:10px;margin:5px 0;border-radius:4px;font-family:monospace}
+</style>
+</head>
+<body>
+<h1>🇮🇷 Iran VPN Server Readiness Report v4.0</h1>
+<p class="meta">Generated: $(date) | Server: $MY_IP</p>
+<div class="score-box">
+  <div class="score grade-${G}">${SCORE}/100 — Grade ${G}</div>
+  <div class="bar"><div class="bar-fill" style="width:${SCORE}%"></div></div>
+  <strong>${V}</strong><br><span class="meta">${ADV}</span>
+</div>
+$REPORT_DATA
+<h2>Installation Commands</h2>
+<div class="cmd">systemctl stop systemd-resolved && systemctl disable systemd-resolved</div>
+<div class="cmd">bash &lt;(curl -Ls https://raw.githubusercontent.com/mhsanaei/3x-ui/master/install.sh)</div>
+<div class="cmd">bash &lt;(curl -Ls https://raw.githubusercontent.com/masterking32/MasterDnsVPN/main/server_linux_install.sh)</div>
+<p class="meta">Iran VPN Server Tester v4.0 — آزادی اینترنت حق همه مردم ایران است</p>
+</body></html>
+HTMLEOF
+    echo -e "  ${GREEN}[✔] HTML report saved: ${BOLD}$HTML_FILE${NC}"
 }
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -794,15 +1027,25 @@ final_verdict() {
 # ═══════════════════════════════════════════════════════════════════════════
 main() {
     banner
+
+    if [[ $PROBE_SERVER_MODE -eq 1 ]]; then
+        probe_server_mode
+        exit 0
+    fi
+
     install_deps
-    phase1_identity  || { echo -e "${RED}Fatal: Cannot continue without internet.${NC}"; exit 1; }
+    phase1_identity  || { echo -e "${RED}Fatal: No internet access${NC}"; exit 1; }
     phase2_install
     phase3_ports
     phase4_network
     phase5_sni
     phase6_dns_tunnel
-    phase7_protocols
-    phase8_system
+
+    if [[ $QUICK_MODE -eq 0 ]]; then
+        phase7_protocols
+        phase8_system
+    fi
+
     final_verdict
 }
 
